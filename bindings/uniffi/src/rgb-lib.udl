@@ -1,0 +1,652 @@
+namespace rgb_lib {
+  Keys generate_keys(BitcoinNetwork bitcoin_network);
+
+  [Throws=RgbLibError]
+  Keys restore_keys(BitcoinNetwork bitcoin_network, string mnemonic);
+
+  [Throws=RgbLibError]
+  void restore_backup(string backup_path, string password, string data_dir);
+};
+
+[Error, Remote]
+interface RgbLibError {
+  AllocationsAlreadyAvailable();
+  AssetNotFound(string asset_id);
+  BatchTransferNotFound(i32 idx);
+  BitcoinNetworkMismatch();
+  CannotChangeOnline();
+  CannotDeleteBatchTransfer();
+  CannotEstimateFees();
+  CannotFailBatchTransfer();
+  CannotFinalizePsbt();
+  CannotUseIfaOnMainnet();
+  EmptyFile(string file_path);
+  FailedBdkSync(string details);
+  FailedBroadcast(string details);
+  FailedIssuance(string details);
+  FileAlreadyExists(string path);
+  FingerprintMismatch();
+  IO(string details);
+  Inconsistency(string details);
+  Indexer(string details);
+  InexistentDataDir();
+  InsufficientAllocationSlots();
+  InsufficientAssignments(string asset_id, AssignmentsCollection available);
+  InsufficientBitcoins(u64 needed, u64 available);
+  Internal(string details);
+  InvalidAddress(string details);
+  InvalidAmountZero();
+  InvalidAssetID(string asset_id);
+  InvalidAssignment();
+  InvalidAttachments(string details);
+  InvalidBitcoinKeys();
+  InvalidBitcoinNetwork(string network);
+  InvalidColoringInfo(string details);
+  InvalidConsignment();
+  InvalidDetails(string details);
+  InvalidElectrum(string details);
+  InvalidEstimationBlocks();
+  InvalidFeeRate(string details);
+  InvalidFilePath(string file_path);
+  InvalidFingerprint();
+  InvalidIndexer(string details);
+  InvalidInvoice(string details);
+  InvalidMnemonic(string details);
+  InvalidName(string details);
+  InvalidPrecision(string details);
+  InvalidProxyProtocol(string version);
+  InvalidPsbt(string details);
+  InvalidPubkey(string details);
+  InvalidRecipientData(string details);
+  InvalidRecipientID();
+  InvalidRecipientNetwork();
+  InvalidRejectListUrl(string details);
+  InvalidTicker(string details);
+  InvalidTransportEndpoint(string details);
+  InvalidTransportEndpoints(string details);
+  InvalidTxid();
+  InvalidVanillaKeychain();
+  MaxFeeExceeded(string txid);
+  MinFeeNotMet(string txid);
+  Network(string details);
+  NoConsignment();
+  NoInflationAmounts();
+  NoIssuanceAmounts();
+  NoSupportedSchemas();
+  NoValidTransportEndpoint();
+  Offline();
+  OnlineNeeded();
+  OutputBelowDustLimit();
+  Proxy(string details);
+  RecipientIDAlreadyUsed();
+  RecipientIDDuplicated();
+  RejectListService(string details);
+  RestClientBuild(string details);
+  TooHighInflationAmounts();
+  TooHighIssuanceAmounts();
+  UnknownRgbSchema(string schema_id);
+  UnknownTransfer(string txid);
+  UnsupportedBackupVersion(string version);
+  UnsupportedInflation(AssetSchema asset_schema);
+  UnsupportedLayer1(string layer_1);
+  UnsupportedSchema(AssetSchema asset_schema);
+  UnsupportedTransportType();
+  WalletDirAlreadyExists(string path);
+  WatchOnly();
+  WrongPassword();
+};
+
+[Remote]
+enum AssetSchema {
+  "Nia",
+  "Uda",
+  "Cfa",
+  "Ifa",
+};
+
+[Remote]
+dictionary Media {
+  string file_path;
+  string digest;
+  string mime;
+};
+
+[Remote]
+dictionary AssetNIA {
+  string asset_id;
+  string ticker;
+  string name;
+  string? details;
+  u8 precision;
+  u64 issued_supply;
+  i64 timestamp;
+  i64 added_at;
+  Balance balance;
+  Media? media;
+};
+
+[Remote]
+dictionary TokenLight {
+    u32 index;
+    string? ticker;
+    string? name;
+    string? details;
+    boolean embedded_media;
+    Media? media;
+    record<u8, Media> attachments;
+    boolean reserves;
+};
+
+[Remote]
+dictionary AssetUDA {
+  string asset_id;
+  string ticker;
+  string name;
+  string? details;
+  u8 precision;
+  i64 timestamp;
+  i64 added_at;
+  Balance balance;
+  TokenLight? token;
+};
+
+[Remote]
+dictionary AssetCFA {
+  string asset_id;
+  string name;
+  string? details;
+  u8 precision;
+  u64 issued_supply;
+  i64 timestamp;
+  i64 added_at;
+  Balance balance;
+  Media? media;
+};
+
+[Remote]
+dictionary AssetIFA {
+  string asset_id;
+  string ticker;
+  string name;
+  string? details;
+  u8 precision;
+  u64 initial_supply;
+  u64 max_supply;
+  u64 known_circulating_supply;
+  i64 timestamp;
+  i64 added_at;
+  Balance balance;
+  Media? media;
+  string? reject_list_url;
+};
+
+[Remote]
+dictionary Assets {
+  sequence<AssetNIA>? nia;
+  sequence<AssetUDA>? uda;
+  sequence<AssetCFA>? cfa;
+  sequence<AssetIFA>? ifa;
+};
+
+[Remote]
+dictionary Balance {
+  u64 settled;
+  u64 future;
+  u64 spendable;
+};
+
+[Remote]
+dictionary BtcBalance {
+  Balance vanilla;
+  Balance colored;
+};
+
+[Remote]
+enum BitcoinNetwork {
+  "Mainnet",
+  "Testnet",
+  "Testnet4",
+  "Signet",
+  "Regtest",
+};
+
+[Remote]
+dictionary ReceiveData {
+  string invoice;
+  string recipient_id;
+  i64? expiration_timestamp;
+  i32 batch_transfer_idx;
+};
+
+interface RecipientInfo {
+  [Throws=RgbLibError]
+  constructor(string recipient_id);
+
+  BitcoinNetwork network();
+
+  RecipientType recipient_type();
+};
+
+[Remote]
+enum RecipientType {
+  "Blind",
+  "Witness",
+};
+
+interface TransportEndpoint {
+  [Throws=RgbLibError]
+  constructor(string transport_endpoint);
+
+  TransportType transport_type();
+};
+
+[Remote]
+enum TransportType {
+  "JsonRpc",
+};
+
+[Remote]
+enum DatabaseType {
+  "Sqlite",
+};
+
+interface Address {
+  [Throws=RgbLibError]
+  constructor(string address_string, BitcoinNetwork bitcoin_network);
+};
+
+interface Invoice {
+  [Throws=RgbLibError]
+  constructor(string invoice_string);
+
+  InvoiceData invoice_data();
+
+  string invoice_string();
+};
+
+[Enum]
+interface Assignment {
+  Fungible(u64 amount);
+  NonFungible();
+  InflationRight(u64 amount);
+  ReplaceRight();
+  Any();
+};
+
+[Remote]
+dictionary AssignmentsCollection {
+  u64 fungible;
+  boolean non_fungible;
+  u64 inflation;
+  u8 replace;
+};
+
+dictionary InvoiceData {
+  string recipient_id;
+  AssetSchema? asset_schema;
+  string? asset_id;
+  Assignment assignment;
+  string? assignment_name;
+  BitcoinNetwork network;
+  i64? expiration_timestamp;
+  sequence<string> transport_endpoints;
+};
+
+[Remote]
+dictionary Keys {
+  string mnemonic;
+  string xpub;
+  string account_xpub_vanilla;
+  string account_xpub_colored;
+  string master_fingerprint;
+};
+
+[Remote]
+dictionary EmbeddedMedia {
+    string mime;
+    sequence<u8> data;
+};
+
+[Remote]
+dictionary ProofOfReserves {
+    Outpoint utxo;
+    sequence<u8> proof;
+};
+
+[Remote]
+dictionary Token {
+    u32 index;
+    string? ticker;
+    string? name;
+    string? details;
+    EmbeddedMedia? embedded_media;
+    Media? media;
+    record<u8, Media> attachments;
+    ProofOfReserves? reserves;
+};
+
+[Remote]
+dictionary Metadata {
+  AssetSchema asset_schema;
+  u64 initial_supply;
+  u64 max_supply;
+  u64 known_circulating_supply;
+  i64 timestamp;
+  string name;
+  u8 precision;
+  string? ticker;
+  string? details;
+  Token? token;
+  string? reject_list_url;
+};
+
+[Remote]
+dictionary Online {
+  u64 id;
+  string indexer_url;
+};
+
+[Remote]
+dictionary Outpoint {
+  string txid;
+  u32 vout;
+};
+
+[Remote]
+dictionary WitnessData {
+  u64 amount_sat;
+  u64? blinding;
+};
+
+[Remote]
+dictionary OperationResult {
+  string txid;
+  i32 batch_transfer_idx;
+};
+
+dictionary Recipient {
+  string recipient_id;
+  WitnessData? witness_data;
+  Assignment assignment;
+  sequence<string> transport_endpoints;
+};
+
+[Remote]
+dictionary RefreshFilter {
+  RefreshTransferStatus status;
+  boolean incoming;
+};
+
+[Remote]
+dictionary RefreshedTransfer {
+  TransferStatus? updated_status;
+  RgbLibError? failure;
+};
+
+[Remote]
+enum RefreshTransferStatus {
+  "WaitingCounterparty",
+  "WaitingConfirmations",
+};
+
+dictionary RgbAllocation {
+  string? asset_id;
+  Assignment assignment;
+  boolean settled;
+};
+
+[Remote]
+dictionary TransferTransportEndpoint {
+  string endpoint;
+  TransportType transport_type;
+  boolean used;
+};
+
+[Remote]
+enum TransferKind {
+  "Issuance",
+  "ReceiveBlind",
+  "ReceiveWitness",
+  "Send",
+  "Inflation",
+};
+
+[Remote]
+enum TransferStatus {
+  "WaitingCounterparty",
+  "WaitingConfirmations",
+  "Settled",
+  "Failed",
+};
+
+[Remote]
+dictionary Transaction {
+    TransactionType transaction_type;
+    string txid;
+    u64 received;
+    u64 sent;
+    u64 fee;
+    BlockTime? confirmation_time;
+};
+
+[Remote]
+enum TransactionType {
+  "RgbSend",
+  "Drain",
+  "CreateUtxos",
+  "User",
+};
+
+[Remote]
+dictionary BlockTime {
+  u32 height;
+  u64 timestamp;
+};
+
+dictionary Transfer {
+  i32 idx;
+  i32 batch_transfer_idx;
+  i64 created_at;
+  i64 updated_at;
+  TransferStatus status;
+  Assignment? requested_assignment;
+  sequence<Assignment> assignments;
+  TransferKind kind;
+  string? txid;
+  string? recipient_id;
+  Outpoint? receive_utxo;
+  Outpoint? change_utxo;
+  i64? expiration;
+  sequence<TransferTransportEndpoint> transport_endpoints;
+  string? invoice_string;
+  string? consignment_path;
+};
+
+dictionary Unspent {
+  Utxo utxo;
+  sequence<RgbAllocation> rgb_allocations;
+  u32 pending_blinded;
+};
+
+[Remote]
+dictionary Utxo {
+  Outpoint outpoint;
+  u64 btc_amount;
+  boolean colorable;
+  boolean exists;
+};
+
+[Remote]
+dictionary WalletData {
+  string data_dir;
+  BitcoinNetwork bitcoin_network;
+  DatabaseType database_type;
+  u32 max_allocations_per_utxo;
+  string account_xpub_vanilla;
+  string account_xpub_colored;
+  string? mnemonic;
+  string master_fingerprint;
+  u8? vanilla_keychain;
+  sequence<AssetSchema> supported_schemas;
+};
+
+interface Wallet {
+  [Throws=RgbLibError]
+  constructor(WalletData wallet_data);
+
+  WalletData get_wallet_data();
+
+  string get_wallet_dir();
+
+  string get_media_dir();
+
+  [Throws=RgbLibError]
+  void backup(string backup_path, string password);
+
+  [Throws=RgbLibError]
+  boolean backup_info();
+
+  [Throws=RgbLibError]
+  ReceiveData blind_receive(
+    string? asset_id, Assignment assignment, u32? duration_seconds,
+    sequence<string> transport_endpoints, u8 min_confirmations);
+
+  [Throws=RgbLibError]
+  ReceiveData witness_receive(
+    string? asset_id, Assignment assignment, u32? duration_seconds,
+    sequence<string> transport_endpoints, u8 min_confirmations);
+
+  [Throws=RgbLibError]
+  string finalize_psbt(string signed_psbt);
+
+  [Throws=RgbLibError]
+  string sign_psbt(string unsigned_psbt);
+
+  [Throws=RgbLibError]
+  u8 create_utxos(
+    Online online, boolean up_to, u8? num, u32? size, u64 fee_rate,
+    boolean skip_sync);
+
+  [Throws=RgbLibError]
+  string create_utxos_begin(
+    Online online, boolean up_to, u8? num, u32? size, u64 fee_rate,
+    boolean skip_sync);
+
+  [Throws=RgbLibError]
+  u8 create_utxos_end(Online online, string signed_psbt, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  boolean delete_transfers(i32? batch_transfer_idx, boolean no_asset_only);
+
+  [Throws=RgbLibError]
+  string drain_to(
+    Online online, string address, boolean destroy_assets, u64 fee_rate);
+
+  [Throws=RgbLibError]
+  string drain_to_begin(
+    Online online, string address, boolean destroy_assets, u64 fee_rate);
+
+  [Throws=RgbLibError]
+  string drain_to_end(Online online, string signed_psbt);
+
+  [Throws=RgbLibError]
+  boolean fail_transfers(
+    Online online, i32? batch_transfer_idx, boolean no_asset_only,
+    boolean skip_sync);
+
+  [Throws=RgbLibError]
+  string get_address();
+
+  [Throws=RgbLibError]
+  Balance get_asset_balance(string asset_id);
+
+  [Throws=RgbLibError]
+  BtcBalance get_btc_balance(Online? online, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  Metadata get_asset_metadata(string asset_id);
+
+  [Throws=RgbLibError]
+  f64 get_fee_estimation(Online online, u16 blocks);
+
+  [Throws=RgbLibError]
+  Online go_online(boolean skip_consistency_check, string indexer_url);
+
+  [Throws=RgbLibError]
+  OperationResult inflate(
+    Online online, string asset_id, sequence<u64> inflation_amounts,
+    u64 fee_rate, u8 min_confirmations);
+
+  [Throws=RgbLibError]
+  string inflate_begin(
+    Online online, string asset_id, sequence<u64> inflation_amounts,
+    u64 fee_rate, u8 min_confirmations);
+
+  [Throws=RgbLibError]
+  OperationResult inflate_end(Online online, string signed_psbt);
+
+  [Throws=RgbLibError]
+  AssetNIA issue_asset_nia(
+    string ticker, string name, u8 precision, sequence<u64> amounts);
+
+  [Throws=RgbLibError]
+  AssetUDA issue_asset_uda(
+    string ticker, string name, string? details, u8 precision,
+    string? media_file_path, sequence<string> attachments_file_paths);
+
+  [Throws=RgbLibError]
+  AssetCFA issue_asset_cfa(
+    string name, string? details, u8 precision, sequence<u64> amounts,
+    string? file_path);
+
+  [Throws=RgbLibError]
+  AssetIFA issue_asset_ifa(
+    string ticker, string name, u8 precision, sequence<u64> amounts,
+    sequence<u64> inflation_amounts, u8 replace_rights_num,
+    string? reject_list_url);
+
+  [Throws=RgbLibError]
+  Assets list_assets(sequence<AssetSchema> filter_asset_schemas);
+
+  [Throws=RgbLibError]
+  sequence<Transaction> list_transactions(Online? online, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  sequence<Transfer> list_transfers(string? asset_id);
+
+  [Throws=RgbLibError]
+  sequence<Unspent> list_unspents(
+    Online? online, boolean settled_only, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  record<i32, RefreshedTransfer> refresh(
+    Online online, string? asset_id, sequence<RefreshFilter> filter,
+    boolean skip_sync);
+
+  [Throws=RgbLibError]
+  OperationResult send(
+    Online online, record<DOMString, sequence<Recipient>> recipient_map,
+    boolean donation, u64 fee_rate, u8 min_confirmations, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  string send_begin(
+    Online online, record<DOMString, sequence<Recipient>> recipient_map,
+    boolean donation, u64 fee_rate, u8 min_confirmations);
+
+  [Throws=RgbLibError]
+  OperationResult send_end(Online online, string signed_psbt, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  string send_btc(
+    Online online, string address, u64 amount, u64 fee_rate, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  string send_btc_begin(
+    Online online, string address, u64 amount, u64 fee_rate, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  string send_btc_end(Online online, string signed_psbt, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  void sync(Online online);
+};

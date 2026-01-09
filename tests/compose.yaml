@@ -1,0 +1,69 @@
+services:
+  bitcoind:
+    image: registry.gitlab.com/hashbeam/docker/bitcoind:30.0
+    command: "-fallbackfee=0.0002"
+  electrs:
+    image: registry.gitlab.com/hashbeam/docker/electrs:0.10.10
+    ports:
+      - 50001:50001
+    depends_on:
+      - bitcoind
+  electrs-2:
+    image: registry.gitlab.com/hashbeam/docker/electrs:0.10.10
+    profiles: ['tests']
+    ports:
+      - 50002:50001
+    depends_on:
+      - bitcoind
+  electrs-blockstream:
+    image: olivbau/blockstream-electrs
+    profiles: ['tests']
+    command:
+      --network regtest
+      --daemon-rpc-addr bitcoind:18443
+      --cookie user:default_password
+      --jsonrpc-import
+      --electrum-rpc-addr 0.0.0.0:60401
+      -vvv
+    ports:
+      - 50003:60401
+    depends_on:
+      - bitcoind
+  esplora:
+    build:
+      context: ./esplora
+      dockerfile: ./Dockerfile.notor
+    image: esplora:latest-notor
+    profiles: ['tests']
+    command: /srv/explorer/run.sh bitcoin-regtest explorer
+    environment:
+      DEBUG: verbose
+      NO_PRECACHE: 1
+      NO_ADDRESS_SEARCH: 1
+      NO_REGTEST_MINING: 1
+    ports:
+      - 50004:50001
+      - 8094:80
+  proxy:
+    image: ghcr.io/rgb-tools/rgb-proxy-server:0.3.0
+    ports:
+      - 3000:3000
+  proxy-mod-proto:
+    image: ghcr.io/rgb-tools/rgb-proxy-server:0.1.0
+    profiles: ['tests']
+    ports:
+      - 3001:3000
+  proxy-mod-api:
+    build:
+      context: ./rgb-proxy-server
+      dockerfile: ./Dockerfile.modified-api
+    image: rgb-proxy-server:modified-api
+    profiles: ['tests']
+    ports:
+      - 3002:3000
+  reject-lists:
+    image: nginx:1.29
+    ports:
+      - 8140:80
+    volumes:
+      - ./lists:/usr/share/nginx/html/lists:ro

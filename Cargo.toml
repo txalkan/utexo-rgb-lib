@@ -1,0 +1,132 @@
+[package]
+name = "rgb-lib"
+version = "0.3.0-beta.4"
+authors = [
+    "Zoe Faltibà <zoefaltiba@gmail.com>",
+    "Nicola Busanello <nicola.busanello@gmail.com>",
+]
+edition = "2024"
+rust-version = "1.85.0"
+repository = "https://github.com/RGB-Tools/rgb-lib"
+homepage = "https://github.com/RGB-Tools/rgb-lib"
+license = "MIT"
+description = "RGB wallet library"
+exclude = ["migration"]
+
+[workspace]
+members = [".", "migration"]
+
+[dependencies]
+base64 = { version = "0.22.1", default-features = false, features = [
+    "std",
+] }
+bdk_wallet = { version = "=2.0.0", default-features = false, features = [
+    "file_store",
+    "keys-bip39",
+    "std",
+] }
+bdk_electrum = { version = "0.23.0", optional = true, default-features = false, features = [
+    "use-rustls",
+] }
+bdk_esplora = { version = "0.22.0", optional = true, default-features = false, features = [
+    "blocking-https-rustls",
+] }
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
+    "alloc",
+    "stream",
+] }
+futures = { version = "0.3", default-features = false, features = [
+    "executor",
+] }
+generic-array = "=0.14.7"  # temporary pin while waiting for chacha20poly1305 update
+hex = { version = "0.4.3", default-features = false }
+rand = { version = "0.9.1", default-features = false }
+reqwest = { version = "0.12", optional = true, default-features = false, features = [
+    "blocking",
+    "json",
+    "multipart",
+    "rustls-tls",
+] }
+rgb-lib-migration = { path = "migration", version = "0.3.0-beta.2" }
+rustls = { version = "0.23", default-features = false }
+scrypt = { version = "0.11.0", default-features = false, features = [
+    "simple",
+    "std",
+] }
+sea-orm = { version = "1.1.12", default-features = false, features = [
+    "macros",
+    "runtime-async-std-rustls",
+    "sqlx-sqlite",
+    "with-json",
+] }
+sea-query = "0.32.6"
+serde = { version = "^1.0", default-features = false, features = [
+    "derive",
+] }
+serde_json = { version = "^1.0", default-features = false, features = [
+    "preserve_order",
+] }
+slog = { version = "2.7.0", default-features = false }
+slog-async = { version = "2.8.0", default-features = false }
+slog-term = { version = "2.9.1", default-features = false }
+tempfile = { version = "3.20.0", default-features = false }
+thiserror = { version = "2.0", default-features = false }
+time = { version = "0.3.41", default-features = false }
+file-format = { version = "0.27.0", default-features = false, features = [
+    "reader",
+] }
+typenum = { version = "1.18.0", default-features = false }
+walkdir = { version = "2.5.0", default-features = false }
+zip = { version = "4.0.0", default-features = false, features = [
+    "zstd",
+] }
+
+# RGB-related deps
+amplify = { version = "=4.8.1", default-features = false }
+bp-consensus = { version = "=0.11.1-alpha.2", default-features = false, features = ["serde"] }
+bp-seals = { version = "=0.11.1-alpha.2", default-features = false, features = ["serde"] }
+bp-electrum = { version = "=0.11.1-alpha.2", optional = true, default-features = false, features = [
+    "proxy",
+    "use-rustls",
+] }
+bp-esplora = { version = "=0.11.1-alpha.2", optional = true, default-features = false, features = [
+    "blocking",
+] }
+bp-invoice = { version = "=0.11.1-alpha.2", default-features = false }
+commit_verify = { version = "=0.11.1-alpha.2", default-features = false }
+rgb-invoicing = { version = "=0.11.1-rc.6", default-features = false }
+rgb-psbt-utils = { version = "=0.11.1-rc.6", default-features = false }
+rgb-schemas = { version = "=0.11.1-rc.5", default-features = false }
+rgb-ops = { version = "=0.11.1-rc.6", default-features = false, features = [
+    "serde",
+] }
+strict_encoding = { version = "=2.8.2", default-features = false }
+
+[dev-dependencies]
+copy_dir = { version = "0.1.3", default-features = false }
+dircmp = { version = "0.2.0", default-features = false }
+lazy_static = { version = "1.5.0", default-features = false }
+once_cell = { version = "1.21.3", default-features = false }
+regex = { version = "1.11.1", default-features = false }
+serial_test = { version = "3.2.0", default-features = false }
+
+[features]
+default = ["electrum"]
+all = ["electrum", "esplora"]
+electrum = [
+    "bdk_electrum",
+    "bp-electrum",
+    "reqwest",
+    "rgb-ops/electrum_blocking",
+]
+esplora = [
+    "bdk_esplora",
+    "bp-esplora",
+    "reqwest",
+    "rgb-ops/esplora_blocking",
+]
+camel_case = ["default"]
+
+[profile.reldebug]
+inherits = "release"
+debug = 1
