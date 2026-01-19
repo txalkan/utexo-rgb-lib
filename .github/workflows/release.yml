@@ -207,9 +207,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Trigger rebuild of rgb-lib-go
-  trigger-go-bindings:
-    name: Trigger Go bindings rebuild
+  # Trigger rebuild of bindings
+  trigger-bindings:
+    name: Trigger bindings rebuild
     needs: release
     runs-on: ubuntu-latest
 
@@ -228,6 +228,18 @@ jobs:
         with:
           token: ${{ secrets.RGB_LIB_GO_PAT }}
           repository: UTEXO-Protocol/rgb-lib-go
+          event-type: rgb-lib-release
+          client-payload: |
+            {
+              "version": "${{ steps.version.outputs.version }}",
+              "release_url": "https://github.com/UTEXO-Protocol/rgb-lib/releases/tag/${{ steps.version.outputs.version }}"
+            }
+
+      - name: Trigger rgb-lib-nodejs workflow
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.RGB_LIB_NODEJS_PAT }}
+          repository: UTEXO-Protocol/rgb-lib-nodejs
           event-type: rgb-lib-release
           client-payload: |
             {
