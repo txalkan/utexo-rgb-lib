@@ -136,15 +136,6 @@ pub extern "C" fn rgblib_create_utxos_end(
 ) -> CResultString {
     create_utxos_end(wallet, online, signed_psbt, skip_sync).into()
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn rgblib_create_utxos_end(
-    wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
-    signed_psbt: *const c_char,
-    skip_sync: bool,
-) -> CResultString {
-    create_utxos_end(wallet, online, signed_psbt, skip_sync).into()
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rgblib_delete_transfers(
