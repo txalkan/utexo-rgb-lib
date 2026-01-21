@@ -267,6 +267,31 @@ pub(crate) fn create_utxos_end(
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn delete_transfers(
+    wallet: &COpaqueStruct,
+    batch_transfer_idx_opt: *const c_char,
+    no_asset_only: bool,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let batch_transfer_idx = convert_optional_number(batch_transfer_idx_opt)?;
+    let res = wallet.delete_transfers(batch_transfer_idx, no_asset_only)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn fail_transfers(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    batch_transfer_idx_opt: *const c_char,
+    no_asset_only: bool,
+    skip_sync: bool,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = Online::from_opaque(online)?;
+    let batch_transfer_idx = convert_optional_number(batch_transfer_idx_opt)?;
+    let res = wallet.fail_transfers((*online).clone(), batch_transfer_idx, no_asset_only, skip_sync)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn finalize_psbt(
     wallet: &COpaqueStruct,
     signed_psbt: *const c_char,
@@ -609,6 +634,36 @@ pub(crate) fn send_btc(
     let amount = ptr_to_num(amount)?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let res = wallet.send_btc((*online).clone(), address, amount, fee_rate, skip_sync)?;
+    Ok(res)
+}
+
+pub(crate) fn send_btc_begin(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    address: *const c_char,
+    amount: *const c_char,
+    fee_rate: *const c_char,
+    skip_sync: bool,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = Online::from_opaque(online)?;
+    let address = ptr_to_string(address);
+    let amount = ptr_to_num(amount)?;
+    let fee_rate = ptr_to_num(fee_rate)?;
+    let res = wallet.send_btc_begin((*online).clone(), address, amount, fee_rate, skip_sync)?;
+    Ok(res)
+}
+
+pub(crate) fn send_btc_end(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    signed_psbt: *const c_char,
+    skip_sync: bool,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = Online::from_opaque(online)?;
+    let signed_psbt = ptr_to_string(signed_psbt);
+    let res = wallet.send_btc_end((*online).clone(), signed_psbt, skip_sync)?;
     Ok(res)
 }
 
