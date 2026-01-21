@@ -138,6 +138,33 @@ pub extern "C" fn rgblib_create_utxos_end(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rgblib_delete_transfers(
+    wallet: &COpaqueStruct,
+    batch_transfer_idx_opt: *const c_char,
+    no_asset_only: bool,
+) -> CResultString {
+    delete_transfers(wallet, batch_transfer_idx_opt, no_asset_only).into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_fail_transfers(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    batch_transfer_idx_opt: *const c_char,
+    no_asset_only: bool,
+    skip_sync: bool,
+) -> CResultString {
+    fail_transfers(
+        wallet,
+        online,
+        batch_transfer_idx_opt,
+        no_asset_only,
+        skip_sync,
+    )
+    .into()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rgblib_finalize_psbt(
     wallet: &COpaqueStruct,
     signed_psbt: *const c_char,
@@ -409,6 +436,28 @@ pub extern "C" fn rgblib_send_btc(
     skip_sync: bool,
 ) -> CResultString {
     send_btc(wallet, online, address, amount, fee_rate, skip_sync).into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_send_btc_begin(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    address: *const c_char,
+    amount: *const c_char,
+    fee_rate: *const c_char,
+    skip_sync: bool,
+) -> CResultString {
+    send_btc_begin(wallet, online, address, amount, fee_rate, skip_sync).into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_send_btc_end(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    signed_psbt: *const c_char,
+    skip_sync: bool,
+) -> CResultString {
+    send_btc_end(wallet, online, signed_psbt, skip_sync).into()
 }
 
 #[unsafe(no_mangle)]
