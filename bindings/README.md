@@ -29,8 +29,8 @@ These are the unofficially supported languages:
 [rgb-lib-c-sharp]: https://github.com/UTEXO-Protocol/rgb-lib-c-sharp
 [rgb-lib-go]: https://github.com/UTEXO-Protocol/rgb-lib-go
 [rgb-lib-kotlin]: https://github.com/RGB-Tools/rgb-lib-kotlin
-[rgb-lib-nodejs]: https://github.com/RGB-Tools/rgb-lib-nodejs
-[rgb-lib-python]: https://github.com/RGB-Tools/rgb-lib-python
+[rgb-lib-nodejs]: https://github.com/UTEXO-Protocol/rgb-lib-nodejs
+[rgb-lib-python]: https://github.com/UTEXO-Protocol/rgb-lib-python
 [rgb-lib-swift]: https://github.com/RGB-Tools/rgb-lib-swift
 [c-ffi]: c-ffi/
 [uniffi]: uniffi/
