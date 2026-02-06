@@ -160,13 +160,6 @@ pub enum Error {
     #[error("Amount 0 is invalid")]
     InvalidAmountZero,
 
-    /// An invalid asset ID has been provided
-    #[error("Invalid asset ID: {asset_id}")]
-    InvalidAssetID {
-        /// Asset ID
-        asset_id: String,
-    },
-
     /// An invalid assignment has been provided
     #[error("Invalid assignment")]
     InvalidAssignment,
@@ -566,7 +559,7 @@ pub(crate) enum InternalError {
     RgbPsbtError(String),
 
     #[error("Seal parse error: {0}")]
-    SealParse(#[from] seals::txout::explicit::ParseError),
+    SealParse(#[from] rgbstd::txout::explicit::ParseError),
 
     #[error("Serde JSON error: {0}")]
     SerdeJSON(#[from] serde_json::Error),

@@ -349,6 +349,8 @@ pub struct AssetUDA {
     pub added_at: i64,
     /// Current balance of the asset
     pub balance: Balance,
+    /// Asset media attachment
+    pub media: Option<Media>,
     /// Asset unique token
     pub token: Option<TokenLight>,
 }
@@ -363,7 +365,19 @@ impl AssetUDA {
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
         txos: Option<Vec<DbTxo>>,
+        medias: Option<Vec<DbMedia>>,
     ) -> Result<AssetUDA, Error> {
+        let media = {
+            let medias = if let Some(m) = medias {
+                m
+            } else {
+                wallet.database.iter_media()?
+            };
+            medias
+                .iter()
+                .find(|m| Some(m.idx) == asset.media_idx)
+                .map(|m| Media::from_db_media(m, wallet.get_media_dir()))
+        };
         let balance = wallet.database.get_asset_balance(
             asset.id.clone(),
             transfers,
@@ -381,6 +395,7 @@ impl AssetUDA {
             timestamp: asset.timestamp,
             added_at: asset.added_at,
             balance,
+            media,
             token,
         })
     }
@@ -896,15 +911,6 @@ impl From<OutPoint> for Outpoint {
     }
 }
 
-impl From<RgbOutpoint> for Outpoint {
-    fn from(x: RgbOutpoint) -> Outpoint {
-        Outpoint {
-            txid: x.txid.to_string(),
-            vout: x.vout.into_u32(),
-        }
-    }
-}
-
 impl From<DbTxo> for Outpoint {
     fn from(x: DbTxo) -> Outpoint {
         Outpoint {
@@ -917,18 +923,6 @@ impl From<DbTxo> for Outpoint {
 impl From<Outpoint> for OutPoint {
     fn from(x: Outpoint) -> OutPoint {
         OutPoint::from_str(&x.to_string()).expect("outpoint should be parsable")
-    }
-}
-
-impl From<DbTxo> for RgbOutpoint {
-    fn from(x: DbTxo) -> RgbOutpoint {
-        RgbOutpoint::new(RgbTxid::from_str(&x.txid).unwrap(), x.vout)
-    }
-}
-
-impl From<Outpoint> for RgbOutpoint {
-    fn from(x: Outpoint) -> RgbOutpoint {
-        RgbOutpoint::new(RgbTxid::from_str(&x.txid).unwrap(), x.vout)
     }
 }
 
@@ -1318,12 +1312,13 @@ impl Wallet {
             )?;
             (desc_colored, desc_vanilla, true)
         };
+        let chain_net: ChainNet = wdata.bitcoin_network.into();
         let mut wallet_params = BdkWallet::load()
             .descriptor(KeychainKind::External, Some(desc_colored.clone()))
             .descriptor(KeychainKind::Internal, Some(desc_vanilla.clone()))
-            .check_genesis_hash(
-                BlockHash::from_str(get_genesis_hash(&wdata.bitcoin_network)).unwrap(),
-            );
+            .check_genesis_hash(BlockHash::from_byte_array(
+                chain_net.chain_hash().to_bytes(),
+            ));
         let bdk_db_name = if watch_only {
             format!("{BDK_DB_NAME}_watch_only")
         } else {
@@ -1757,14 +1752,14 @@ impl Wallet {
         ContractTerms { text, media }
     }
 
-    pub(crate) fn get_blind_seal(&self, outpoint: impl Into<RgbOutpoint>) -> BlindSeal<RgbTxid> {
+    pub(crate) fn get_blind_seal(&self, outpoint: impl Into<OutPoint>) -> BlindSeal<RgbTxid> {
         let outpoint = outpoint.into();
         BlindSeal::new_random(outpoint.txid, outpoint.vout)
     }
 
     pub(crate) fn get_builder_seal(
         &self,
-        outpoint: impl Into<RgbOutpoint>,
+        outpoint: impl Into<OutPoint>,
     ) -> BuilderSeal<BlindSeal<RgbTxid>> {
         BuilderSeal::from(self.get_blind_seal(outpoint))
     }
@@ -1996,7 +1991,10 @@ impl Wallet {
 
         let created_at = now().unix_timestamp();
         let text = RicardianContract::default();
-        let terms = ContractTerms { text, media: None };
+        #[cfg(test)]
+        let terms = mock_asset_terms(self, text, None);
+        #[cfg(not(test))]
+        let terms = self.new_asset_terms(text, None);
 
         let details_obj = if let Some(details) = &details {
             Some(self.check_details(details.clone())?)
@@ -2148,8 +2146,17 @@ impl Wallet {
             )?;
         }
 
-        let asset =
-            AssetUDA::get_asset_details(self, &asset, Some(token), None, None, None, None, None)?;
+        let asset = AssetUDA::get_asset_details(
+            self,
+            &asset,
+            Some(token),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )?;
 
         self.update_backup_info(false)?;
 
@@ -3314,6 +3321,7 @@ impl Wallet {
                                     batch_transfers.clone(),
                                     colorings.clone(),
                                     txos.clone(),
+                                    medias.clone(),
                                 )
                             })
                             .collect::<Result<Vec<AssetUDA>, Error>>()?,

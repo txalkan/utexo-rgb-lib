@@ -44,8 +44,10 @@ LISTS_DIR="${CWD}/lists"
 COMPOSE_FPATH="${CWD}/compose.yaml"
 COMPOSE="$COMPOSE -f ${COMPOSE_FPATH}"
 EXPOSED_PORTS=(3000 50001)  # see compose.yaml for the exposed ports
+TIMEOUT=100
 
 BCLI="$COMPOSE exec -T -u blits bitcoind bitcoin-cli -regtest"
+BCLI_SIGNET="$COMPOSE exec -T -u blits bitcoind_signet_custom bitcoin-cli -signet"
 BCLI_ESPLORA="$COMPOSE exec -T esplora cli"
 
 _prepare_bitcoin_funds() {
@@ -56,12 +58,22 @@ _prepare_bitcoin_funds() {
         # connect the 2 bitcoind services
         $BCLI addnode "esplora:18444" "add"
         $BCLI_ESPLORA addnode "bitcoind:18444" "add"
+        $BCLI_SIGNET createwallet miner
+        $BCLI_SIGNET -rpcwallet=miner generatetoaddress 1 "$($BCLI_SIGNET getnewaddress)" 100000000
     fi
 }
 
 _wait_for_bitcoind() {
     # wait for bitcoind to be up
-    until $COMPOSE logs bitcoind |grep -q 'Bound to'; do
+    bitcoind_service_name="$1"
+    start_time=$(date +%s)
+    until $COMPOSE logs $bitcoind_service_name |grep -q 'Bound to'; do
+        current_time=$(date +%s)
+        if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
+            echo "Timeout waiting for $bitcoind_service_name to start"
+            $COMPOSE logs $bitcoind_service_name
+            exit 1
+        fi
         sleep 1
     done
 }
@@ -69,14 +81,29 @@ _wait_for_bitcoind() {
 _wait_for_electrs() {
     # wait for electrs to have completed startup
     electrs_service_name="$1"
+    start_time=$(date +%s)
     until $COMPOSE logs $electrs_service_name |grep -q 'finished full compaction'; do
+        current_time=$(date +%s)
+        if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
+            echo "Timeout waiting for $electrs_service_name to start"
+            $COMPOSE logs $electrs_service_name
+            exit 1
+        fi
         sleep 1
     done
 }
 
 _wait_for_esplora() {
     # wait for esplora to have completed startup
-    until $COMPOSE logs esplora |grep -q 'run: nginx:'; do
+    esplora_service_name="$1"
+    start_time=$(date +%s)
+    until $COMPOSE logs $esplora_service_name |grep -q 'run: nginx:'; do
+        current_time=$(date +%s)
+        if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
+            echo "Timeout waiting for $esplora_service_name to start"
+            $COMPOSE logs $esplora_service_name
+            exit 1
+        fi
         sleep 1
     done
 }
@@ -84,7 +111,14 @@ _wait_for_esplora() {
 _wait_for_proxy() {
     # wait for proxy to have completed startup
     proxy_service_name="$1"
+    start_time=$(date +%s)
     until $COMPOSE logs $proxy_service_name |grep -q 'App is running at http://localhost:3000'; do
+        current_time=$(date +%s)
+        if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
+            echo "Timeout waiting for $proxy_service_name to start"
+            $COMPOSE logs $proxy_service_name
+            exit 1
+        fi
         sleep 1
     done
 }
@@ -118,7 +152,7 @@ prepare_tests_environment() {
     TESTS=1
 
     COMPOSE="$COMPOSE --profile tests"
-    EXPOSED_PORTS+=(3001 3002 50002 50003 50004 8094)
+    EXPOSED_PORTS+=(3001 3002 50002 50003 50004 50005 8094)
 
     PROXY_MOD_PROTO="proxy-mod-proto"
     PROXY_MOD_API="proxy-mod-api"
@@ -130,7 +164,9 @@ prepare_tests_environment() {
 
     _start_services
 
-    _wait_for_bitcoind
+    _wait_for_bitcoind bitcoind
+
+    _wait_for_bitcoind bitcoind_signet_custom
 
     _prepare_bitcoin_funds
 
@@ -140,7 +176,9 @@ prepare_tests_environment() {
 
     _wait_for_electrs electrs-blockstream
 
-    _wait_for_esplora
+    _wait_for_electrs electrs_signet_custom
+
+    _wait_for_esplora esplora
 
     _wait_for_proxy proxy
 
@@ -152,7 +190,7 @@ prepare_tests_environment() {
 prepare_bindings_examples_environment() {
     _start_services
 
-    _wait_for_bitcoind
+    _wait_for_bitcoind bitcoind
 
     _prepare_bitcoin_funds
 
