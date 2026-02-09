@@ -45,10 +45,12 @@ pub enum BitcoinNetwork {
     Testnet,
     /// Bitcoin's testnet4
     Testnet4,
-    /// Bitcoin's signet
+    /// Bitcoin's default signet
     Signet,
     /// Bitcoin's regtest
     Regtest,
+    /// Bitcoin's custom signet
+    SignetCustom([u8; 32]),
 }
 
 impl fmt::Display for BitcoinNetwork {
@@ -61,7 +63,15 @@ impl FromStr for BitcoinNetwork {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s.to_lowercase().as_str() {
+        let s = s.to_lowercase();
+        if let Some(hash) = s.strip_prefix("signet-") {
+            return BlockHash::from_str(hash)
+                .map(|h| BitcoinNetwork::SignetCustom(*h.as_ref()))
+                .map_err(|_| Error::InvalidBitcoinNetwork {
+                    network: s.to_owned(),
+                });
+        }
+        Ok(match s.as_str() {
             "mainnet" | "bitcoin" => BitcoinNetwork::Mainnet,
             "testnet" | "testnet3" => BitcoinNetwork::Testnet,
             "testnet4" => BitcoinNetwork::Testnet4,
@@ -86,6 +96,7 @@ impl TryFrom<ChainNet> for BitcoinNetwork {
             ChainNet::BitcoinTestnet4 => Ok(BitcoinNetwork::Testnet4),
             ChainNet::BitcoinSignet => Ok(BitcoinNetwork::Signet),
             ChainNet::BitcoinRegtest => Ok(BitcoinNetwork::Regtest),
+            ChainNet::BitcoinSignetCustom(h) => Ok(BitcoinNetwork::SignetCustom(*h.as_ref())),
             _ => Err(Error::UnsupportedLayer1 {
                 layer_1: x.layer1().to_string(),
             }),
@@ -101,6 +112,7 @@ impl From<BitcoinNetwork> for bitcoin::Network {
             BitcoinNetwork::Testnet4 => bitcoin::Network::Testnet4,
             BitcoinNetwork::Signet => bitcoin::Network::Signet,
             BitcoinNetwork::Regtest => bitcoin::Network::Regtest,
+            BitcoinNetwork::SignetCustom(_) => bitcoin::Network::Signet,
         }
     }
 }
@@ -122,18 +134,7 @@ impl From<BitcoinNetwork> for ChainNet {
             BitcoinNetwork::Testnet4 => ChainNet::BitcoinTestnet4,
             BitcoinNetwork::Signet => ChainNet::BitcoinSignet,
             BitcoinNetwork::Regtest => ChainNet::BitcoinRegtest,
-        }
-    }
-}
-
-impl From<BitcoinNetwork> for RgbNetwork {
-    fn from(x: BitcoinNetwork) -> RgbNetwork {
-        match x {
-            BitcoinNetwork::Mainnet => RgbNetwork::Mainnet,
-            BitcoinNetwork::Testnet => RgbNetwork::Testnet3,
-            BitcoinNetwork::Testnet4 => RgbNetwork::Testnet4,
-            BitcoinNetwork::Signet => RgbNetwork::Signet,
-            BitcoinNetwork::Regtest => RgbNetwork::Regtest,
+            BitcoinNetwork::SignetCustom(h) => ChainNet::BitcoinSignetCustom(ChainHash::from(h)),
         }
     }
 }
@@ -237,48 +238,6 @@ where
     T::Err: fmt::Display,
 {
     deserialize_str_or_number(deserializer)
-}
-
-pub(crate) fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
-    match bitcoin_network {
-        BitcoinNetwork::Mainnet => {
-            "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
-        }
-        BitcoinNetwork::Testnet => {
-            "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-        }
-        BitcoinNetwork::Testnet4 => {
-            "00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043"
-        }
-        BitcoinNetwork::Signet => {
-            "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6"
-        }
-        BitcoinNetwork::Regtest => {
-            "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
-        }
-    }
-}
-
-#[cfg(feature = "electrum")]
-fn get_valid_txid_for_network(bitcoin_network: &BitcoinNetwork) -> String {
-    match bitcoin_network {
-        BitcoinNetwork::Mainnet => {
-            "33e794d097969002ee05d336686fc03c9e15a597c1b9827669460fac98799036"
-        }
-        BitcoinNetwork::Testnet => {
-            "5e6560fd518aadbed67ee4a55bdc09f19e619544f5511e9343ebba66d2f62653"
-        }
-        BitcoinNetwork::Testnet4 => {
-            "7aa0a7ae1e223414cb807e40cd57e667b718e42aaf9306db9102fe28912b7b4e"
-        }
-        BitcoinNetwork::Signet => {
-            "8153034f45e695453250a8fb7225a5e545144071d8ed7b0d3211efa1f3c92ad8"
-        }
-        BitcoinNetwork::Regtest => {
-            "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
-        }
-    }
-    .to_string()
 }
 
 pub(crate) fn str_to_xpub(xpub: &str, bdk_network: BdkNetwork) -> Result<Xpub, Error> {
@@ -428,10 +387,7 @@ pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<Scrip
         XChainNet::<Beneficiary>::from_str(&recipient_id).map_err(|_| Error::InvalidRecipientID)?;
     match xchainnet_beneficiary.into_inner() {
         Beneficiary::WitnessVout(pay_2_vout, _) => {
-            let script_pubkey = pay_2_vout.script_pubkey();
-            let script_bytes = script_pubkey.as_script_bytes();
-            let script_bytes_vec = script_bytes.clone().into_vec();
-            let script_buf = ScriptBuf::from_bytes(script_bytes_vec);
+            let script_buf = pay_2_vout.to_script();
             Ok(Some(script_buf))
         }
         Beneficiary::BlindedSeal(_) => Ok(None),
@@ -439,9 +395,7 @@ pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<Scrip
 }
 
 pub(crate) fn beneficiary_from_script_buf(script_buf: ScriptBuf) -> Beneficiary {
-    let address_payload =
-        AddressPayload::from_script(&ScriptPubkey::try_from(script_buf.into_bytes()).unwrap())
-            .unwrap();
+    let address_payload = AddressPayload::from_script(&script_buf).unwrap();
     Beneficiary::WitnessVout(Pay2Vout::new(address_payload), None)
 }
 
@@ -521,19 +475,6 @@ pub(crate) fn calculate_descriptor_from_xpub(
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-fn check_genesis_hash(bitcoin_network: &BitcoinNetwork, indexer: &Indexer) -> Result<(), Error> {
-    let expected = get_genesis_hash(bitcoin_network);
-    let block_hash = indexer.block_hash(0)?;
-    if expected != block_hash {
-        return Err(Error::InvalidIndexer {
-            details: s!("indexer is for a network different from the wallet's one"),
-        });
-    }
-
-    Ok(())
-}
-
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn get_rest_client() -> Result<RestClient, Error> {
     RestClient::builder()
         .timeout(Duration::from_secs(REST_CLIENT_TIMEOUT as u64))
@@ -571,10 +512,10 @@ pub(crate) fn check_proxy(proxy_url: &str, rest_client: Option<&RestClient>) -> 
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn get_indexer(
+pub(crate) fn get_indexer_and_resolver(
     indexer_url: &str,
     bitcoin_network: BitcoinNetwork,
-) -> Result<Indexer, Error> {
+) -> Result<(Indexer, AnyResolver), Error> {
     // detect indexer type
     let indexer = build_indexer(indexer_url);
     let mut invalid_indexer = true;
@@ -588,20 +529,37 @@ pub(crate) fn get_indexer(
     }
     let indexer = indexer.unwrap();
 
-    // check the indexer server is for the correct network
-    check_genesis_hash(&bitcoin_network, &indexer)?;
+    let resolver = match indexer {
+        #[cfg(feature = "electrum")]
+        Indexer::Electrum(_) => {
+            let electrum_config = ConfigBuilder::new()
+                .retry(INDEXER_RETRIES)
+                .timeout(Some(INDEXER_TIMEOUT))
+                .build();
+            AnyResolver::electrum_blocking(indexer_url, Some(electrum_config)).map_err(|e| {
+                Error::InvalidIndexer {
+                    details: e.to_string(),
+                }
+            })?
+        }
+        #[cfg(feature = "esplora")]
+        Indexer::Esplora(_) => {
+            let esplora_config = EsploraBuilder::new(indexer_url)
+                .max_retries(INDEXER_RETRIES.into())
+                .timeout(INDEXER_TIMEOUT.into());
+            AnyResolver::esplora_blocking(esplora_config).map_err(|e| Error::InvalidIndexer {
+                details: e.to_string(),
+            })?
+        }
+    };
 
-    #[cfg(feature = "electrum")]
-    if matches!(indexer, Indexer::Electrum(_)) {
-        // check the electrum server has the required functionality (verbose transactions)
-        indexer
-            .get_tx_confirmations(&get_valid_txid_for_network(&bitcoin_network))
-            .map_err(|_| Error::InvalidElectrum {
-                details: s!("verbose transactions are currently unsupported"),
-            })?;
-    }
+    resolver
+        .check_chain_net(bitcoin_network.into())
+        .map_err(|e| Error::InvalidIndexer {
+            details: e.to_string(),
+        })?;
 
-    Ok(indexer)
+    Ok((indexer, resolver))
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -753,7 +711,7 @@ impl RgbRuntime {
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn contracts_assigning(
         &self,
-        outputs: impl IntoIterator<Item = impl Into<RgbOutpoint>>,
+        outputs: impl IntoIterator<Item = impl Into<OutPoint>>,
     ) -> Result<BTreeSet<ContractId>, InternalError> {
         Ok(FromIterator::from_iter(
             self.stock
@@ -789,7 +747,7 @@ impl RgbRuntime {
     pub(crate) fn contract_assignments_for(
         &self,
         contract_id: ContractId,
-        outpoints: impl IntoIterator<Item = impl Into<RgbOutpoint>>,
+        outpoints: impl IntoIterator<Item = impl Into<OutPoint>>,
     ) -> Result<HashMap<OutputSeal, HashMap<Opout, AllocatedState>>, InternalError> {
         self.stock
             .contract_assignments_for(contract_id, outpoints)

@@ -55,25 +55,31 @@ fn fail() {
     let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
     assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
 
+    let details_another_chain = "resolver is for another chain-network pair";
+
     #[cfg(feature = "electrum")]
     {
         // electrs wrong network
         let result = test_go_online_result(&mut wallet_testnet, false, None);
-        let details = "indexer is for a network different from the wallet's one";
-        assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
+        assert!(
+            matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details_another_chain )
+        );
 
         // unsupported electrs variant
         let result = test_go_online_result(&mut wallet, false, Some(ELECTRUM_BLOCKSTREAM_URL));
-        let details = "verbose transactions are currently unsupported";
-        assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
+        let details = "verbose transactions are unsupported by the provided electrum service";
+        assert!(
+            matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains(details) )
+        );
     }
 
     #[cfg(feature = "esplora")]
     {
         // esplora wrong network
         let result = test_go_online_result(&mut wallet_testnet, false, Some(ESPLORA_URL));
-        let details = "indexer is for a network different from the wallet's one";
-        assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
+        assert!(
+            matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details_another_chain )
+        );
     }
 
     // bad online object
@@ -83,6 +89,19 @@ fn fail() {
     };
     let result = wallet.check_online(wrong_online);
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn invalid_chain_net() {
+    initialize();
+
+    // URL for custom signet but wallet for default signet
+    let mut wallet_signet = get_test_wallet_with_net(true, None, BitcoinNetwork::Signet);
+    let result = test_go_online_result(&mut wallet_signet, false, Some(ELECTRUM_SIGNET_CUSTOM_URL));
+    let details = "unable to retrieve information from the resolver";
+    assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains(details) ));
 }
 
 #[cfg(feature = "electrum")]
