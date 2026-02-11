@@ -3,195 +3,11 @@ use super::*;
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn success() {
-    initialize();
-
-    let amt_sat = 500;
-    let blinding = 777;
-
-    // wallets
-    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
-    let (mut wallet_recv, _online_recv) = get_empty_wallet!();
-
-    // create 1 UTXO and drain the rest
-    test_create_utxos(
-        &mut wallet_send,
-        &online_send,
-        false,
-        Some(1),
-        None,
-        FEE_RATE,
-        None,
-    );
-    test_drain_to_keep(
-        &mut wallet_send,
-        &online_send,
-        &test_get_address(&mut wallet_recv),
-    );
-
-    // issue
-    let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
-
-    // prepare PSBT
-    let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
-    let mut tx_builder = wallet_send.bdk_wallet.build_tx();
-    tx_builder
-        .add_recipient(
-            address.assume_checked().script_pubkey(),
-            BdkAmount::from_sat(amt_sat),
-        )
-        .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
-    let mut psbt = tx_builder.finish().unwrap();
-    let mut psbt_copy = psbt.clone();
-    assert!(
-        !psbt
-            .unsigned_tx
-            .output
-            .iter()
-            .any(|o| o.script_pubkey.is_op_return())
-    );
-    assert!(psbt.proprietary.is_empty());
-
-    // color PSBT
-    assert_eq!(psbt.unsigned_tx.input.len(), 1);
-    let mut output_map = HashMap::new();
-    let output = psbt
-        .unsigned_tx
-        .output
-        .iter()
-        .enumerate()
-        .find(|(_, o)| o.value.to_sat() == amt_sat)
-        .unwrap();
-    let vout = output.0 as u32;
-    output_map.insert(vout, AMOUNT); // sending AMOUNT since color_psbt doesn't support change
-    let asset_coloring_info = AssetColoringInfo {
-        output_map,
-        static_blinding: Some(blinding),
-    };
-    let asset_info_map: HashMap<ContractId, AssetColoringInfo> = HashMap::from_iter([(
-        ContractId::from_str(&asset.asset_id).unwrap(),
-        asset_coloring_info,
-    )]);
-    let coloring_info = ColoringInfo {
-        asset_info_map,
-        static_blinding: Some(blinding),
-        nonce: None,
-    };
-    let (fascia, beneficiaries) = wallet_send
-        .color_psbt(&mut psbt, coloring_info.clone())
-        .unwrap();
-
-    // check PSBT
-    assert!(
-        psbt.unsigned_tx
-            .output
-            .iter()
-            .any(|o| o.script_pubkey.is_op_return())
-    );
-    assert!(!psbt.proprietary.is_empty());
-    let vout = vout + 1;
-
-    // check fascia
-    let Fascia { bundles, .. } = fascia.clone();
-    assert_eq!(bundles.len(), 1);
-    let (_cid, bundle) = bundles.iter().next().unwrap();
-    let im_keys = bundle.input_map.keys();
-    assert_eq!(im_keys.len(), 1);
-    let mut transitions = bundle.known_transitions.iter().map(|kt| &kt.transition);
-    assert_eq!(transitions.len(), 1);
-    let transition = transitions.next().unwrap();
-    let assignments = &transition.assignments;
-    assert_eq!(assignments.len(), 1);
-    let (_, fungible) = assignments.iter().next().unwrap();
-    let fungible = fungible.as_fungible();
-    assert_eq!(fungible.len(), 1);
-    let fungible = fungible.first().unwrap();
-    let seal = fungible.revealed_seal().unwrap();
-    let state = fungible.as_revealed_state();
-    assert_eq!(seal.txid, TxPtr::WitnessTx);
-    assert_eq!(seal.vout.into_u32(), vout);
-    assert_eq!(seal.blinding, blinding);
-    assert_eq!(state.as_u64(), AMOUNT);
-
-    // check beneficiaries
-    assert_eq!(beneficiaries.len(), 1);
-    let (_cid, seals) = beneficiaries.first_key_value().unwrap();
-    let seal = match seals.first().unwrap() {
-        BuilderSeal::Revealed(r) => r,
-        BuilderSeal::Concealed(_) => panic!("revealed expected"),
-    };
-    assert_eq!(seal.txid, TxPtr::WitnessTx);
-    assert_eq!(seal.vout.into_u32(), vout);
-    assert_eq!(seal.blinding, blinding);
-
-    // color PSBT and consume
-    let transfers = wallet_send
-        .color_psbt_and_consume(&mut psbt_copy, coloring_info)
-        .unwrap();
-
-    // check that the two color_psbt* methods produce matching PSBTs (no additional changes)
-    assert_eq!(psbt, psbt_copy);
-
-    // push consignment to proxy
-    let txid = psbt_copy.unsigned_tx.compute_txid().to_string();
-    let transfers_dir = wallet_send.get_transfers_dir().join(&txid);
-    let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
-    std::fs::create_dir_all(&transfers_dir).unwrap();
-    assert_eq!(transfers.len(), 1);
-    transfers
-        .first()
-        .unwrap()
-        .save_file(&consignment_path)
-        .unwrap();
-    wallet_send
-        .post_consignment(
-            PROXY_URL,
-            txid.clone(),
-            consignment_path,
-            txid.clone(),
-            Some(vout),
-        )
-        .unwrap();
-
-    // accept transfer
-    let consignment_endpoint = RgbTransport::from_str(&PROXY_ENDPOINT).unwrap();
-    wallet_recv
-        .accept_transfer(txid.clone(), vout, consignment_endpoint, blinding)
-        .unwrap();
-
-    // consume fascia
-    wallet_send
-        .consume_fascia(fascia, RgbTxid::from_str(&txid).unwrap(), None)
-        .unwrap();
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
 fn color_psbt_for_outpoints_and_consume_rejects_invalid_inputs() {
-    initialize();
-
     let amt_sat = 500;
 
-    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
-    let (mut wallet_recv, _online_recv) = get_empty_wallet!();
-
-    test_create_utxos(
-        &mut wallet_send,
-        &online_send,
-        false,
-        Some(1),
-        None,
-        FEE_RATE,
-        None,
-    );
-    test_drain_to_keep(
-        &mut wallet_send,
-        &online_send,
-        &test_get_address(&mut wallet_recv),
-    );
-
-    let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
+    let (mut wallet_send, _online_send, mut wallet_recv, asset) =
+        setup_send_receive_wallets_with_asset();
 
     let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
     let mut tx_builder = wallet_send.bdk_wallet.build_tx();
@@ -247,30 +63,11 @@ fn color_psbt_for_outpoints_and_consume_rejects_invalid_inputs() {
 #[test]
 #[parallel]
 fn color_psbt_for_outpoints_and_consume_success() {
-    initialize();
-
     let amt_sat = 500;
     let blinding = 777;
 
-    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
-    let (mut wallet_recv, _online_recv) = get_empty_wallet!();
-
-    test_create_utxos(
-        &mut wallet_send,
-        &online_send,
-        false,
-        Some(1),
-        None,
-        FEE_RATE,
-        None,
-    );
-    test_drain_to_keep(
-        &mut wallet_send,
-        &online_send,
-        &test_get_address(&mut wallet_recv),
-    );
-
-    let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
+    let (mut wallet_send, _online_send, mut wallet_recv, asset) =
+        setup_send_receive_wallets_with_asset();
 
     let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
     let mut tx_builder = wallet_send.bdk_wallet.build_tx();
@@ -369,6 +166,95 @@ fn contract_assignments_for_outpoints_success() {
             .iter()
             .any(|a| matches!(a, Assignment::Fungible(_)))
     );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn fetch_and_accept_transfer_from_consignment_success() {
+    let amt_sat = 500;
+    let blinding = 777;
+
+    let (mut wallet_send, _online_send, mut wallet_recv, asset) =
+        setup_send_receive_wallets_with_asset();
+
+    // prepare PSBT
+    let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
+    let script_pubkey = address.assume_checked().script_pubkey();
+    let recipient_id = recipient_id_from_script_buf(script_pubkey.clone(), BitcoinNetwork::Regtest);
+    let mut tx_builder = wallet_send.bdk_wallet.build_tx();
+    tx_builder
+        .add_recipient(script_pubkey.clone(), BdkAmount::from_sat(amt_sat))
+        .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
+    let mut psbt = tx_builder.finish().unwrap();
+
+    // color PSBT and consume
+    let output = psbt
+        .unsigned_tx
+        .output
+        .iter()
+        .enumerate()
+        .find(|(_, o)| o.value.to_sat() == amt_sat)
+        .unwrap();
+    let vout_pre = output.0 as u32;
+    let mut output_map = HashMap::new();
+    output_map.insert(vout_pre, AMOUNT);
+    let asset_coloring_info = AssetColoringInfo {
+        output_map,
+        static_blinding: Some(blinding),
+    };
+    let asset_info_map: HashMap<ContractId, AssetColoringInfo> = HashMap::from_iter([(
+        ContractId::from_str(&asset.asset_id).unwrap(),
+        asset_coloring_info,
+    )]);
+    let coloring_info = ColoringInfo {
+        asset_info_map,
+        static_blinding: Some(blinding),
+        nonce: None,
+    };
+    let transfers = wallet_send
+        .color_psbt_and_consume(&mut psbt, coloring_info)
+        .unwrap();
+
+    // push consignment to proxy using recipient_id
+    let txid = psbt.get_txid().to_string();
+    let vout = psbt
+        .unsigned_tx
+        .output
+        .iter()
+        .position(|o| o.script_pubkey == script_pubkey)
+        .expect("missing recipient output") as u32;
+    let transfers_dir = wallet_send.get_transfers_dir().join(&txid);
+    let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
+    std::fs::create_dir_all(&transfers_dir).unwrap();
+    assert_eq!(transfers.len(), 1);
+    transfers
+        .first()
+        .unwrap()
+        .save_file(&consignment_path)
+        .unwrap();
+    wallet_send
+        .post_consignment(
+            PROXY_URL,
+            recipient_id.clone(),
+            consignment_path,
+            txid.clone(),
+            Some(vout),
+        )
+        .unwrap();
+
+    // fetch + accept transfer
+    let consignment_endpoint = RgbTransport::from_str(&PROXY_ENDPOINT).unwrap();
+    let (consignment, consignment_txid, consignment_vout) = wallet_recv
+        .fetch_consignment_by_recipient_id(recipient_id, consignment_endpoint)
+        .unwrap();
+    assert_eq!(consignment_txid, txid);
+    assert_eq!(consignment_vout, vout);
+
+    let (_consignment, assignments) = wallet_recv
+        .accept_transfer_from_consignment(consignment, consignment_txid, consignment_vout, blinding)
+        .unwrap();
+    assert!(!assignments.is_empty());
 }
 
 #[cfg(feature = "electrum")]
@@ -541,19 +427,12 @@ fn save_new_asset_success() {
 }
 
 #[cfg(feature = "electrum")]
-#[test]
-#[parallel]
-fn color_psbt_fail() {
+fn setup_send_receive_wallets_with_asset() -> (Wallet, Online, Wallet, AssetNIA) {
     initialize();
 
-    let amt_sat = 500;
-    let blinding = 777;
-
-    // wallets
     let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
     let (mut wallet_recv, _online_recv) = get_empty_wallet!();
 
-    // create 1 UTXO and drain the rest
     test_create_utxos(
         &mut wallet_send,
         &online_send,
@@ -569,8 +448,163 @@ fn color_psbt_fail() {
         &test_get_address(&mut wallet_recv),
     );
 
-    // issue
     let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
+
+    (wallet_send, online_send, wallet_recv, asset)
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn success() {
+    let amt_sat = 500;
+    let blinding = 777;
+
+    let (mut wallet_send, _online_send, mut wallet_recv, asset) =
+        setup_send_receive_wallets_with_asset();
+
+    // prepare PSBT
+    let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
+    let mut tx_builder = wallet_send.bdk_wallet.build_tx();
+    tx_builder
+        .add_recipient(
+            address.assume_checked().script_pubkey(),
+            BdkAmount::from_sat(amt_sat),
+        )
+        .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
+    let mut psbt = tx_builder.finish().unwrap();
+    let mut psbt_copy = psbt.clone();
+    assert!(
+        !psbt
+            .unsigned_tx
+            .output
+            .iter()
+            .any(|o| o.script_pubkey.is_op_return())
+    );
+    assert!(psbt.proprietary.is_empty());
+
+    // color PSBT
+    assert_eq!(psbt.unsigned_tx.input.len(), 1);
+    let mut output_map = HashMap::new();
+    let output = psbt
+        .unsigned_tx
+        .output
+        .iter()
+        .enumerate()
+        .find(|(_, o)| o.value.to_sat() == amt_sat)
+        .unwrap();
+    let vout = output.0 as u32;
+    output_map.insert(vout, AMOUNT); // sending AMOUNT since color_psbt doesn't support change
+    let asset_coloring_info = AssetColoringInfo {
+        output_map,
+        static_blinding: Some(blinding),
+    };
+    let asset_info_map: HashMap<ContractId, AssetColoringInfo> = HashMap::from_iter([(
+        ContractId::from_str(&asset.asset_id).unwrap(),
+        asset_coloring_info,
+    )]);
+    let coloring_info = ColoringInfo {
+        asset_info_map,
+        static_blinding: Some(blinding),
+        nonce: None,
+    };
+    let (fascia, beneficiaries) = wallet_send
+        .color_psbt(&mut psbt, coloring_info.clone())
+        .unwrap();
+
+    // check PSBT
+    assert!(
+        psbt.unsigned_tx
+            .output
+            .iter()
+            .any(|o| o.script_pubkey.is_op_return())
+    );
+    assert!(!psbt.proprietary.is_empty());
+    let vout = vout + 1;
+
+    // check fascia
+    let Fascia { bundles, .. } = fascia.clone();
+    assert_eq!(bundles.len(), 1);
+    let (_cid, bundle) = bundles.iter().next().unwrap();
+    let im_keys = bundle.input_map.keys();
+    assert_eq!(im_keys.len(), 1);
+    let mut transitions = bundle.known_transitions.iter().map(|kt| &kt.transition);
+    assert_eq!(transitions.len(), 1);
+    let transition = transitions.next().unwrap();
+    let assignments = &transition.assignments;
+    assert_eq!(assignments.len(), 1);
+    let (_, fungible) = assignments.iter().next().unwrap();
+    let fungible = fungible.as_fungible();
+    assert_eq!(fungible.len(), 1);
+    let fungible = fungible.first().unwrap();
+    let seal = fungible.revealed_seal().unwrap();
+    let state = fungible.as_revealed_state();
+    assert_eq!(seal.txid, TxPtr::WitnessTx);
+    assert_eq!(seal.vout.into_u32(), vout);
+    assert_eq!(seal.blinding, blinding);
+    assert_eq!(state.as_u64(), AMOUNT);
+
+    // check beneficiaries
+    assert_eq!(beneficiaries.len(), 1);
+    let (_cid, seals) = beneficiaries.first_key_value().unwrap();
+    let seal = match seals.first().unwrap() {
+        BuilderSeal::Revealed(r) => r,
+        BuilderSeal::Concealed(_) => panic!("revealed expected"),
+    };
+    assert_eq!(seal.txid, TxPtr::WitnessTx);
+    assert_eq!(seal.vout.into_u32(), vout);
+    assert_eq!(seal.blinding, blinding);
+
+    // color PSBT and consume
+    let transfers = wallet_send
+        .color_psbt_and_consume(&mut psbt_copy, coloring_info)
+        .unwrap();
+
+    // check that the two color_psbt* methods produce matching PSBTs (no additional changes)
+    assert_eq!(psbt, psbt_copy);
+
+    // push consignment to proxy
+    let txid = psbt_copy.unsigned_tx.compute_txid().to_string();
+    let transfers_dir = wallet_send.get_transfers_dir().join(&txid);
+    let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
+    std::fs::create_dir_all(&transfers_dir).unwrap();
+    assert_eq!(transfers.len(), 1);
+    transfers
+        .first()
+        .unwrap()
+        .save_file(&consignment_path)
+        .unwrap();
+    wallet_send
+        .post_consignment(
+            PROXY_URL,
+            txid.clone(),
+            consignment_path,
+            txid.clone(),
+            Some(vout),
+        )
+        .unwrap();
+
+    // accept transfer
+    let consignment_endpoint = RgbTransport::from_str(&PROXY_ENDPOINT).unwrap();
+    wallet_recv
+        .accept_transfer(txid.clone(), vout, consignment_endpoint, blinding)
+        .unwrap();
+
+    // consume fascia
+    wallet_send
+        .consume_fascia(fascia, RgbTxid::from_str(&txid).unwrap(), None)
+        .unwrap();
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn color_psbt_fail() {
+    let amt_sat = 500;
+    let blinding = 777;
+
+    let (mut wallet_send, _online_send, mut wallet_recv, asset) =
+        setup_send_receive_wallets_with_asset();
 
     // prepare PSBT
     let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
